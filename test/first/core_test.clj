@@ -18,9 +18,8 @@
 (deftest local-queue-test
   (let [state {:ts 0 :queue [{:ts 3} {:ts 4}]}]
     (testing "Low LBTS"
-      (let [[message new-state] (extrude-local-queue state {:ts 2})]
-        (is (nil? message))
-        (is (= state new-state))))
+      (let [rs (extrude-local-queue state {:ts 2})]
+        (is (nil? rs))))
     (testing "High enough LBTS"
       (let [[message new-state] (extrude-local-queue state {:ts 8})]
         (is (= message {:ts 3}))
@@ -38,3 +37,25 @@
         (is (= lbts-msg msg))
         (is (= new-state (assoc state :ts 1)))
         (is (= @(:chan1 chans) [{:ts 2}]))))))
+
+(deftest generic-process-test
+  (let [chans {:1>3 (agent [])
+               :2>3 (agent [])
+               :3>1 (agent [])
+               :3>2 (agent [])}
+        run-ctrl (atom true)]
+    (binding [running run-ctrl]
+      (future (generic-process
+               (select-keys chans [:1>3 :2>3])
+               (select-keys chans [:3>1 :3>2])
+               (fn [msg state]
+                 (case (:event msg)
+                   :deposit [{:3>1 {:event :notify :text "Deposit successful"}}
+                             (update state :cash (fnil + 0) (:amount msg))]
+                   [{} state])))))
+    (send (:1>3 chans) conj {:event :deposit :amount 1337 :ts 1})
+    (send (:2>3 chans) conj {:event :null-msg :ts 2})
+    (Thread/sleep 100)
+    (swap! run-ctrl not)
+    (is (= @(:3>1 chans) [{:event :notify :text "Deposit successful" :ts 1}]))
+    (is (= @(:3>2 chans) [{:event :null-msg :ts 1}]))))
