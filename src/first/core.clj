@@ -10,6 +10,8 @@
       (let [cm (->> msgs         ;; Sort messages by ts with channel index
                     (sort-by (comp :ts val)) ;; Get lbts pair of [chan message]
                     first)]
+        (when (:client>bank chans)
+          (clojure.pprint/pprint msgs))
         cm))))
 
 (defn extrude-local-queue [state lbts-msg]
@@ -18,12 +20,13 @@
                                    sorted-queue))] ;; Get first LBTS compiant message
     (when message
       [message (if message
-                 {:queue (rest sorted-queue) ;; Update ts and remove message from q
+                 ;; Update ts and remove message from q
+                 {:queue (vec (rest sorted-queue))
                   :ts (:ts message)}         ;; for a new state
                  state)])))
 
 (defn extrude-from-chan! [chan state lbts-msg]
-  (send chan rest) ;; Remove message from chan
+  (send chan (comp vec rest)) ;; Remove message from chan
 
   ;; Update ts for new state, inner queue stay unchanged buffer
   [lbts-msg (assoc state :ts (:ts lbts-msg))])
@@ -36,14 +39,14 @@
   (doall (for [c (vals out)]
            (send c conj {:ts 0 :event :null-msg})))
   (loop [state (merge {:queue [] :ts 0} init-state)]
-    (when @running
+    (if @running
       (let [[lbts-chan lbts-msg] (get-lbts in)] ;; Get LBTS channel and message
         (if (some? lbts-msg) ;; Don't do anything until LBTS is known
           (let [[msg new-state] ;; Get next msg to process from queue or chan buffer
                 (or (extrude-local-queue state lbts-msg)
                     (extrude-from-chan! (get in lbts-chan)
                                         state lbts-msg))
-                ts (:ts new-state)
+                ts (inc (:ts new-state))
 
                 ;; Process message through implementation (bank, store, whatever)
                 [to-send-lite result-state] (process-fn msg new-state)
@@ -82,25 +85,28 @@
                              :client>bank])
          (select-keys chans [:bank>client])
          (fn [msg state]
-           (println msg)
+           #_(println "Bank: " msg)
+           (Thread/sleep 500)
            (case (:event msg)
              :deposit [{} (update state :cash (fnil + 0) (:amount msg))]
              :withdraw (withdraw state (:amount msg))
              :credit [{} (update state :cash (fnil - 0) (:amount msg))]
-             #_(println "Bank NM: " (:ts msg)))))
+             [{} state])))
         store-proc
         (partial
          generic-process
          (select-keys chans [:client>store])
          (select-keys chans [:store>bank])
          (fn [msg state]
+           #_(println "Store: " msg)
+           (Thread/sleep 500)
            (case (:event msg)
              :buy-in-credit [{} (update state :queue conj
-                                        {:ts (+ (:ts msg) 5)
+                                        {:ts (+ (:ts msg) 1)
                                          :event :notify-bank})]
              :notify-bank [{:store>bank {:event :credit
                                          :amount 1337}}]
-             #_(println "Store NM: " (:ts msg))))
+             [{} state]))
           )
         client-proc
         (partial
@@ -109,14 +115,15 @@
          (select-keys chans [:client>store
                              :client>bank])
          (fn [msg state]
-           (println msg)
+           #_(println "Client: " msg)
+           (Thread/sleep 117)
            (case (:event msg)
              :deposit [{:client>bank {:event :deposit :amount 1500}} state]
              :buy-in-credit [{:client>store {:event :buy-in-credit}} state]
              :withdraw [{:client>bank {:event :withdraw :amount 200}} state]
              :withdraw-failed (do (println "withdraw failed") [{} state])
              :withdraw-success (do (println "withdraw success") [{} state])
-             #_(println "Client NM: " (:ts msg))))
+             [{} state]))
          :init-state {:queue [{:ts 0 :event :deposit}
                               {:ts 3 :event :buy-in-credit}
                               {:ts 5 :event :withdraw}]})]
@@ -125,6 +132,5 @@
       (future (bank-proc))
       (future (store-proc))
       (future (client-proc))
-      (Thread/sleep 1000)
-      (swap! run-ctrl not)
-      (println chans))))
+      (Thread/sleep 20000)
+      (swap! run-ctrl not))))
