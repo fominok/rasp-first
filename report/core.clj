@@ -2,7 +2,6 @@
   (:gen-class))
 
 (defn get-lbts [chans]
-
   ;; Get map of chan names and first messages
   (let [msgs (reduce (fn [acc [n c]] (assoc acc n (-> c deref first))) {} chans)]
     (if (some nil? (vals msgs))  ;; Check if some channel is empty
@@ -10,8 +9,6 @@
       (let [cm (->> msgs         ;; Sort messages by ts with channel index
                     (sort-by (comp :ts val)) ;; Get lbts pair of [chan message]
                     first)]
-        #_(when (:client>bank chans)
-          (clojure.pprint/pprint msgs))
         cm))))
 
 (defn extrude-local-queue [state lbts-msg]
@@ -27,7 +24,6 @@
 
 (defn extrude-from-chan! [chan state lbts-msg]
   (send chan (comp vec rest)) ;; Remove message from chan
-
   ;; Update ts for new state, inner queue stay unchanged buffer
   [lbts-msg (assoc state :ts (:ts lbts-msg))])
 
@@ -85,7 +81,6 @@
                              :client>bank])
          (select-keys chans [:bank>client])
          (fn [msg state]
-           #_(println "Bank: " msg)
            (Thread/sleep 500)
            (case (:event msg)
              :deposit [{} (update state :cash (fnil + 0) (:amount msg))]
@@ -98,7 +93,6 @@
          (select-keys chans [:client>store])
          (select-keys chans [:store>bank])
          (fn [msg state]
-           #_(println "Store: " msg)
            (Thread/sleep 500)
            (case (:event msg)
              :buy-in-credit [{} (update state :queue conj
@@ -114,7 +108,6 @@
          (select-keys chans [:client>store
                              :client>bank])
          (fn [msg state]
-           #_(println "Client: " msg)
            (Thread/sleep 117)
            (case (:event msg)
              :deposit [{:client>bank {:event :deposit :amount 1500}} state]

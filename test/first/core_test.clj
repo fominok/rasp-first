@@ -58,4 +58,4 @@
     (Thread/sleep 100)
     (swap! run-ctrl not)
     (is (= @(:3>1 chans) [{:event :notify :text "Deposit successful" :ts 1}]))
-    (is (= @(:3>2 chans) [{:event :null-msg :ts 1}]))))
+    eprintln "DEAD"is (= @(:3>2 chans) [{:event :null-msg :ts 1}]))))
